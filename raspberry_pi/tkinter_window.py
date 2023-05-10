@@ -74,6 +74,7 @@ class TkinterWindow:
 
     def _process_slider_changes(self, value):
         self.counter_value = int(value)
+        self.mqtt_connector.client_publish(self.counter_value)
         self._counter_label.config(text=f"Counter={self.counter_value}")
         event = f"At {datetime.now().time().strftime('%H:%M:%S')}" \
                 f" counter is changed by Slider, new value is {self.counter_value}"
