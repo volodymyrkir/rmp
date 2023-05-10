@@ -1,7 +1,9 @@
-from tkinter import Tk, Label, Button, Entry, Scale, Listbox, Widget
+from tkinter import Tk, Label, Button, Entry, Scale, Listbox, Widget, IntVar
 from tkinter import N, S, E, W, Scrollbar, HORIZONTAL, END
 
 from datetime import datetime
+
+from mqtt.mqtt_connector import MqttConnector
 
 
 class TkinterWindow:
@@ -20,11 +22,19 @@ class TkinterWindow:
         self._actions = []
         self._counter_limit = counter_limit
         self._init_components()
+        self.mqtt_connector = self._initialize_client()
+        self.mqtt_connector.client_publish(str(self.counter_value))
+
+    def _initialize_client(self):
+        client = MqttConnector()
+        client.subscribe_client(on_message=self._client_on_message)
+        return client
 
     def _button_pressed(self):
 
         if self.counter_value + 1 <= self._counter_limit:
             self.counter_value += 1
+            self.mqtt_connector.client_publish(str(self.counter_value))
             self._counter_label.config(text=f"Counter={self.counter_value}")
             event = f"At {datetime.now().time().strftime('%H:%M:%S')}" \
                     f" counter is changed by Button, new value is {self.counter_value}"
@@ -34,6 +44,17 @@ class TkinterWindow:
 
         self.state = not self.state
         self._boolean_label.config(text=f"State is {self.state}")
+
+    def _client_on_message(self, client, userdata, msg):
+        value = int(msg.payload.decode())
+        if value < self._counter_limit and (not self.threshold or self.threshold >= value):
+            self.counter_value = value
+            self._counter_label.config(text=f"Counter={self.counter_value}")
+            self.slider_val.set(value)
+            event = (f"At {datetime.now().time().strftime('%H:%M:%S')}"
+                     f" counter is changed by mobile client,"
+                     f" new value is {self.counter_value}")
+            self._list_box.insert(END, event)
 
     def _threshold_entered(self, event):
         potential_threshold = self._threshold_entry.get()
@@ -77,8 +98,10 @@ class TkinterWindow:
         self._threshold_entry.bind("<Return>", self._threshold_entered)
         self._threshold_entry.focus_set()
 
+        self.slider_val = IntVar()
         self._slider = Scale(self.tkinter_entity, from_=0, to=self._counter_limit,
-                             command=self._process_slider_changes, orient=HORIZONTAL,
+                             command=self._process_slider_changes,variable=self.slider_val,
+                             orient=HORIZONTAL,
                              tickinterval=4, resolution=1, length=450)
 
         self._list_box = Listbox(self.tkinter_entity, height=20, width=45, font=('Bold', 9))
