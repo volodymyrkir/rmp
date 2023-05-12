@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Room status management</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <h1>Room status management</h1>
+    <div class="container">
+      <div class="room-container">
+        <p>Room 1</p>
+        <div class="room-content">
+          <p>Light status: <span id="light_1">{{ light_1 }}</span></p>
+          <button id="switch_light_1" class="switch-button">Switch Light 1</button>
+          <input type="range" min="0" max="100" value="{{ brightness_1 }}" id="brightness_1" class="slider"
+                 {% if not light_1 %}disabled{% endif %}>
+          <label for="brightness_1">Brightness: <span id="brightness_1_span">{{ brightness_1 }}</span>%</label>
+          <p>Temperature in room 1: <span id="temp1"></span></p>
+        </div>
+      </div>
+      <div class="room-container">
+        <p>Room 2</p>
+        <div class="room-content">
+          <p>Light status: <span id="light_2">{{ light_2 }}</span></p>
+          <button id="switch_light_2" class="switch-button">Switch Light 2</button>
+          <input type="range" min="0" max="100" value="{{ brightness_2 }}" id="brightness_2" class="slider"
+                 {% if not light_2 %}disabled{% endif %}>
+          <label for="brightness_2">Brightness: <span id="brightness_2_span">{{ brightness_2 }}</span>%</label>
+          <p>Temperature 2: <span id="temp2"></span></p>
+        </div>
+      </div>
+      <div class="room-container">
+        <p>Room 3</p>
+        <div class="room-content">
+          <p>Light status: <span id="light_3">{{ light_3 }}</span></p>
+          <button id="switch_light_3" class="switch-button">Switch Light 3</button>
+          <p>Brightness</p>
+          <input type="range" min="0" max="100" value="{{ brightness_3 }}" id="brightness_3" class="slider"
+                 {% if not light_3 %}disabled{% endif %}>
+          <label for="brightness_3">Brightness: <span id="brightness_3_span">{{ brightness_3 }}</span>%</label>
+          <p>Temperature 3: <span id="temp3"></span></p>
+        </div>
+      </div>
+    </div>
+    <script>
+      var lightValues = {
+    'light_1': {{ light_1|lower }},
+    'light_2': {{ light_2|lower }},
+    'light_3': {{ light_3|lower }},
+    };
+
+  var brightnessValues = {
+      'brightness_1': {{ brightness_1 }},
+      'brightness_2': {{ brightness_2 }},
+      'brightness_3': {{ brightness_3 }},
+  };
+    function updateLight(elem, value) {
+        elem.textContent = value ? 'On' : 'Off';
+    }
+    function getTemperatures() {
+        fetch('/temperatures')
+          .then(response => response.json())
+          .then(data => {
+            document.getElementById('temp1').innerHTML = data.temperatures[0];
+            document.getElementById('temp2').innerHTML = data.temperatures[1];
+            document.getElementById('temp3').innerHTML = data.temperatures[2];
+          });
+      }
+
+    function setBrightness(elem, value) {
+        elem.textContent = value
+    }
+
+    function toggleLight(light, slider) {
+        lightValues[light] = !lightValues[light];
+        updateLight(document.getElementById(light), lightValues[light]);
+        fetch('/toggle_light', {
+          method: 'POST',
+          body: JSON.stringify({ 'light': light }),
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        toggleSlider(document.getElementById(slider), lightValues[light])
+    }
+    function updateBrightness(brightness, value) {
+        brightnessValues[brightness] = value;
+        setBrightness(document.getElementById(brightness+"_span"), value)
+        fetch('/set_brightness', {
+            method: 'POST',
+            body: JSON.stringify({ 'brightness':brightness, 'value': value }),
+            headers: {
+            'Content-Type': 'application/json'
+            }
+        });
+    }
+
+    function toggleSlider(slider, enabled) {
+        slider.disabled = !enabled;
+    }
+
+    document.getElementById('brightness_1').addEventListener('input', function() {
+        updateBrightness('brightness_1', this.value);
+    });
+
+    document.getElementById('brightness_2').addEventListener('input', function() {
+        updateBrightness('brightness_2', this.value);
+    });
+
+    document.getElementById('brightness_3').addEventListener('input', function() {
+        updateBrightness('brightness_3', this.value);
+    });
+
+    toggleSlider(document.getElementById('brightness_1'), lightValues['light_1']);
+    toggleSlider(document.getElementById('brightness_2'), lightValues['light_2']);
+    toggleSlider(document.getElementById('brightness_3'), lightValues['light_3']);
+
+    document.getElementById('switch_light_1').addEventListener('click', function() {
+        toggleLight('light_1', 'brightness_1');
+    });
+
+    document.getElementById('switch_light_2').addEventListener('click', function() {
+        toggleLight('light_2', 'brightness_2');
+    });
+
+    document.getElementById('switch_light_3').addEventListener('click', function() {
+    toggleLight('light_3', 'brightness_3');
+    });
+
+    updateLight(document.getElementById('light_1'), lightValues['light_1']);
+    updateLight(document.getElementById('light_2'), lightValues['light_2']);
+    updateLight(document.getElementById('light_3'), lightValues['light_3']);
+
+      setInterval(getTemperatures, 5000);
+    </script>
+    <div class="center">
+      <button class="btn-back" onclick="window.history.back()">Back to Previous Page</button>
+    </div>
+  </body>
+</html>
