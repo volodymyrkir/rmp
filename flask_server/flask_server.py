@@ -1,133 +1,157 @@
+from flask import Flask, render_template, request, jsonify
 import random
 import sqlite3
 import tkinter as tk
-from multiprocessing import Process, Manager
-
 import matplotlib.pyplot as plt
-from flask import Flask, render_template, request, jsonify
+import matplotlib.dates as mdates
+from multiprocessing import Process
+from matplotlib.animation import FuncAnimation
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+LOWER_THRESHOLD = 23.1
+UPPER_THRESHOLD = 24.1
 
 
-LOWER_THRESHOLD = 22
-UPPER_THRESHOLD = 24
+class Threshold:
+    def __init__(self, value):
+        self.value = value
+
+    def set(self, value):
+        self.value = value
+
+
+upper_threshold = Threshold(UPPER_THRESHOLD)
+lower_threshold = Threshold(LOWER_THRESHOLD)
 
 
 class TkinterWindow:
-    ROOM_COLORS = ['green', 'blue', 'orange']
-
-    def __init__(self, lower_threshold: int = LOWER_THRESHOLD, upper_threshold: int = UPPER_THRESHOLD):
-        self.lower_threshold = lower_threshold
-        self.upper_threshold = upper_threshold
-        self.connection, self.cursor = self._initialize_sqlite()
-
+    def __init__(self):
         self.window = tk.Tk()
-        self.window.title("Temperature Monitor")
-
+        self.window.geometry("870x670")
+        self.window.title('Volodymyr Kiriushyn')
         self.fig, self.ax = plt.subplots()
+        self.lines = {}
         self.ax.set_xlabel('Time')
         self.ax.set_ylabel('Temperature')
-        self.ax.set_title('Temperature Monitor')
+        self.ax.set_title('Temperature History')
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 
-        self.threshold_upper, = self.ax.plot([], [], 'r-', label='Upper Threshold')
-        self.threshold_lower, = self.ax.plot([], [], 'b-', label='Lower Threshold')
-        self.room_lines = [self.ax.plot([], [], '-',
-                                        color=self.ROOM_COLORS[i],
-                                        label='Room {}'.format(i + 1))[0]
-                           for i in range(3)]
-        self.lines = [self.threshold_upper, self.threshold_lower] + self.room_lines
+        self.upper = upper_threshold
+        self.lower = lower_threshold
+        self.upper_entry = tk.Entry(self.window)
+        self.lower_entry = tk.Entry(self.window)
+        self.update_button = tk.Button(self.window, text="Update Thresholds", command=self.update_thresholds)
 
-        self.ax.legend()
+        # Position the input fields and button
+        self.upper_entry.pack(side=tk.TOP, padx=10, pady=10)
+        self.lower_entry.pack(side=tk.TOP, padx=10, pady=10)
+        self.update_button.pack(side=tk.TOP, padx=10, pady=10)
 
-        self.x_data = []
-        self.y_data = [[] for _ in range(5)]
+        self.upper_threshold_line = None
+        self.lower_threshold_line = None
 
-        self.manager = Manager()
-        self.shared_data = self.manager.dict({'x_data': [], 'y_data': [[] for _ in range(5)]})
-
-    def _initialize_sqlite(self):
+    def animate(self, i):
         conn = sqlite3.connect('temperatures.db')
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS temperatures
-                     (time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, room INTEGER, temperature REAL)''')
+        c.execute("SELECT * FROM temperatures ORDER BY time DESC LIMIT 30")
+        data_temps = c.fetchall()
+        c.execute("SELECT * FROM thresholds ORDER BY time DESC LIMIT 1")
+        data_thresholds = c.fetchone()
+        conn.close()
+
+        room_numbers = set([row[1] for row in data_temps])
+        self.update_lines(room_numbers)
+
+        for room_number in room_numbers:
+            x_data = [mdates.datestr2num(row[0]) for row in data_temps if row[1] == room_number]
+            y_data = [row[2] for row in data_temps if row[1] == room_number]
+            self.lines[room_number].set_data(x_data, y_data)
+
+        self.ax.relim()
+        self.ax.autoscale_view()
+        self.update_threshold_lines(data_thresholds)
+        self.fig.canvas.draw()
+
+    def update_thresholds(self):
+        lower = float(self.lower_entry.get())
+        upper = float(self.upper_entry.get())
+
+        conn = sqlite3.connect('temperatures.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO thresholds (lower, upper) VALUES (?, ?)", (lower, upper))
         conn.commit()
-        return conn, c
+        conn.close()
 
-    def cleanup(self):
-        self.connection.close()
+        self.lower.set(lower)
+        self.upper.set(upper)
 
-    def update_plot(self):
-        self.ax.clear()
+    def update_threshold_lines(self, data_thresholds):
+        if self.upper_threshold_line:
+            self.upper_threshold_line.remove()
+        if self.lower_threshold_line:
+            self.lower_threshold_line.remove()
 
-        # Plot the threshold lines
-        self.threshold_upper.set_data(self.shared_data['x_data'], [self.upper_threshold] * len(self.shared_data['x_data']))
-        self.threshold_lower.set_data(self.shared_data['x_data'], [self.lower_threshold] * len(self.shared_data['x_data']))
+        self.upper_threshold_line = None
+        self.lower_threshold_line = None
 
-        # Plot the room lines
-        for i, line in enumerate(self.room_lines):
-            line.set_data(self.shared_data['x_data'], self.shared_data['y_data'][i + 2])
+        self.upper_threshold_line = self.ax.axhline(y=data_thresholds[2], color='red', linestyle='--',
+                                                    label='Upper Threshold')
 
-        # Set plot limits
-        self.ax.set_xlim(0, max(self.shared_data['x_data']) if self.shared_data['x_data'] else 1)
-        self.ax.set_ylim(0, 30)  # Set appropriate y-axis limits based on your needs
+        self.lower_threshold_line = self.ax.axhline(y=data_thresholds[1], color='blue', linestyle='--',
+                                                    label='Lower Threshold')
 
-        # Add labels and legend
-        self.ax.set_xlabel('Time')
-        self.ax.set_ylabel('Temperature')
-        self.ax.set_title('Temperature Monitor')
         self.ax.legend()
 
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
+    def update_lines(self, room_numbers):
+        existing_rooms = set(self.lines.keys())
+        new_rooms = room_numbers - existing_rooms
+        for room_number in new_rooms:
+            color = self.get_random_color()
+            line, = self.ax.plot([], [], '-', color=color, label=f'Room {room_number}')
+            self.lines[room_number] = line
+        self.ax.legend()
 
-    def animate(self, frame):
-        self.cursor.execute('''SELECT room, temperature FROM temperatures
-                     ORDER BY time DESC
-                     LIMIT 10''')
-        rows = self.cursor.fetchall()
-        if rows:
-            for i, row in enumerate(rows):
-                room, temperature = row
-                self.y_data[i + 2].append(temperature)
-
-        self.x_data.append(frame)
-
-        self.update_plot(frame)
-
-    def update_temperatures(self):
-        for temp in TEMPERATURES:
-            temp.change_temperature()
-            self.cursor.execute("INSERT INTO temperatures(room, temperature) VALUES(?, ?)",
-                                (temp.room, temp.current_temperature))
-        self.connection.commit()
-        self.animate(len(self.x_data))
-        self.shared_data['x_data'] = self.x_data
-        self.shared_data['y_data'] = self.y_data
-        if len(self.x_data) > 1:
-            plt.pause(1)  # Pause for 1 second before updating the plot again
-            plt.show()
+    @staticmethod
+    def get_random_color():
+        r = random.random()
+        g = random.random()
+        b = random.random()
+        return r, g, b
 
     def start(self):
-        tkinter_process = Process(target=self.window.mainloop)
-        animation_process = Process(target=self.animate, args=(0,))
+        conn = sqlite3.connect('temperatures.db')
+        c = conn.cursor()
+        c.execute('CREATE TABLE IF NOT EXISTS temperatures('
+                  'time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, room INTEGER, temperature FLOAT)')
+        c.execute('CREATE TABLE IF NOT EXISTS thresholds('
+                  'time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, lower FLOAT, upper FLOAT)')
+        c.execute('INSERT INTO thresholds (lower, upper) VALUES (?, ?)', (self.lower.value, self.upper.value))
+        conn.commit()
+        conn.close()
+        self.animation_loop()
+        self.window.mainloop()
 
-        tkinter_process.start()
-        animation_process.start()
+    def animation_loop(self):
+        self.animation = FuncAnimation(self.fig, self.animate, interval=1000)
+        self.canvas.draw()
 
-        tkinter_process.join()
 
-        animation_process.terminate()
+TEMPS = random.sample(range(11, 30), 3)
 
 
 class Temperature:
     def __init__(self, room):
         self.room = room
-        self.current_temperature = random.randint(16, 20)
+        self.current_temperature = TEMPS[room - 1]
         self.is_heating = True
         self.change_rate = 0.1
 
-    def change_temperature(self):
-        if self.is_heating and self.current_temperature < UPPER_THRESHOLD:
+    def change_temperature(self, lower, upper):
+        if self.is_heating and self.current_temperature < upper:
             self.current_temperature = round(self.current_temperature + self.change_rate, 2)
-        elif not self.is_heating and self.current_temperature >= LOWER_THRESHOLD:
+        elif not self.is_heating and self.current_temperature >= lower:
             self.current_temperature = round(self.current_temperature - self.change_rate, 2)
         else:
             self.is_heating = not self.is_heating
@@ -167,21 +191,31 @@ def light():
     return render_template('index2.html', **lights, **brightness)
 
 
-def change_temperatures():
+def change_temperatures(lower, upper):
     for temp in TEMPERATURES:
-        temp.change_temperature()
+        temp.change_temperature(lower, upper)
 
 
 @app.route('/temperatures')
 def get_temperatures():
-    change_temperatures()
-    conn = sqlite3.connect('temperatures.db')  # Create a new connection
+    conn = sqlite3.connect('temperatures.db')
     c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM temperatures")
+    record_count = c.fetchone()[0]
+
+    if record_count > 100:
+        c.execute("DELETE FROM temperatures WHERE time IN (SELECT time FROM temperatures ORDER BY time ASC LIMIT 50)")
+    c.execute("SELECT * FROM thresholds ORDER BY time DESC LIMIT 1")
+    data_thresholds = c.fetchone()
+    if data_thresholds:
+        change_temperatures(data_thresholds[1], data_thresholds[2])
+    else:
+        change_temperatures(lower_threshold.value, upper_threshold.value)
     insert_temperatures(c, TEMPERATURES)
     conn.commit()
+    conn.close()
     for temp in TEMPERATURES:
         print(f'Temperature in room {temp.room} is now {temp.current_temperature}')
-    conn.close()
     return jsonify({'temperatures': [temp.current_temperature for temp in TEMPERATURES]})
 
 
@@ -194,10 +228,9 @@ def toggle_light():
     return jsonify({'status': 'success'})
 
 
-@staticmethod
 def insert_temperatures(c, temperatures: list):
     for temperature in temperatures:
-        c.execute("INSERT INTO temperatures(room, temperature) VALUES(?, ?)",
+        c.execute("INSERT INTO temperatures(room, temperature) VALUES (?, ?)",
                   (temperature.room, temperature.current_temperature))
 
 
@@ -223,6 +256,6 @@ if __name__ == '__main__':
     flask_process.start()
 
     tkinter_process.join()
-
+    c.execute('DROP TABLE temperatures')
+    c.execute('DROP TABLE thresholds')
     conn.close()
-
