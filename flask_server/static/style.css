@@ -34,6 +34,14 @@ align-items: center;
 margin: auto;
 max-width: 800px;
 }
+.chart-container {
+    height: 440px;
+    width: 670px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
 .room-container {
 border: 2px solid black;
 border-radius: 10px;

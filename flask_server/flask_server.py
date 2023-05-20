@@ -1,3 +1,5 @@
+import datetime
+
 from flask import Flask, render_template, request, jsonify
 import random
 import sqlite3
@@ -40,12 +42,18 @@ class TkinterWindow:
 
         self.upper = upper_threshold
         self.lower = lower_threshold
+        upper_label = tk.Label(self.window, text="Upper Threshold:")
+        lower_label = tk.Label(self.window, text="Lower Threshold:")
+
+        # Create input fields and button
         self.upper_entry = tk.Entry(self.window)
         self.lower_entry = tk.Entry(self.window)
         self.update_button = tk.Button(self.window, text="Update Thresholds", command=self.update_thresholds)
 
-        # Position the input fields and button
+        # Position the labels, input fields, and button
+        upper_label.pack(side=tk.TOP, padx=10, pady=3)
         self.upper_entry.pack(side=tk.TOP, padx=10, pady=10)
+        lower_label.pack(side=tk.TOP, padx=10, pady=3)
         self.lower_entry.pack(side=tk.TOP, padx=10, pady=10)
         self.update_button.pack(side=tk.TOP, padx=10, pady=10)
 
@@ -134,7 +142,7 @@ class TkinterWindow:
         self.window.mainloop()
 
     def animation_loop(self):
-        self.animation = FuncAnimation(self.fig, self.animate, interval=1000)
+        self.animation = FuncAnimation(self.fig, self.animate, interval=4500)
         self.canvas.draw()
 
 
@@ -146,7 +154,7 @@ class Temperature:
         self.room = room
         self.current_temperature = TEMPS[room - 1]
         self.is_heating = True
-        self.change_rate = 0.1
+        self.change_rate = 0.6
 
     def change_temperature(self, lower, upper):
         if self.is_heating and self.current_temperature < upper:
@@ -219,6 +227,31 @@ def get_temperatures():
     return jsonify({'temperatures': [temp.current_temperature for temp in TEMPERATURES]})
 
 
+@app.route('/temperatures_graph')
+def get_temperatures_list():
+    conn = sqlite3.connect('temperatures.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM temperatures WHERE room = 1 order by time DESC LIMIT 10")
+    temp_list1 = list(reversed([row[2] for row in c.fetchall()]))
+    c.execute("SELECT * FROM temperatures WHERE room = 2 order by time DESC LIMIT 10")
+    temp_list2 = list(reversed([row[2] for row in c.fetchall()]))
+    c.execute("SELECT * FROM temperatures WHERE room = 3 order by time DESC LIMIT 10")
+    data = c.fetchall()
+    temp_list3 = list(reversed([row[2] for row in data]))
+    dates = list(
+        reversed([datetime.datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S').strftime('%H:%M:%S') for row in data]))
+    c.execute("SELECT * FROM thresholds ORDER BY time DESC LIMIT 1")
+    thresholds = c.fetchone()
+    low_thr, upr_thr = thresholds[1], thresholds[2]
+    conn.close()
+    return jsonify({'temp_list1': temp_list1,
+                    'temp_list2': temp_list2,
+                    'temp_list3': temp_list3,
+                    'lower_threshold': low_thr,
+                    'upper_threshold': upr_thr,
+                    'dates': dates})
+
+
 @app.route('/toggle_light', methods=['POST'])
 def toggle_light():
     data = request.get_json()
@@ -240,6 +273,19 @@ def set_brightness():
     print(f'Setting brightness in room {data["brightness"]} to {data["value"]}')
     brightness[data['brightness']] = int(data['value'])
     return 'OK'
+
+
+@app.route('/js_thresholds', methods=['POST'])
+def js_thresholds():
+    data = request.get_json()
+    conn = sqlite3.connect('temperatures.db')
+    c = conn.cursor()
+    lower_js_threshold = float(data.get('lowerThreshold'))
+    upper_js_threshold = float(data.get('upperThreshold'))
+    c.execute('INSERT INTO thresholds(lower, upper) VALUES (?, ?)', (lower_js_threshold, upper_js_threshold))
+    conn.commit()
+    conn.close()
+    return jsonify(message='Thresholds updated successfully')
 
 
 def start_flask():

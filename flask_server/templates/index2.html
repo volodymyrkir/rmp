@@ -3,6 +3,7 @@
   <head>
     <title>Room status management</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.0"></script>
   </head>
   <body>
     <h1>Room status management</h1>
@@ -40,6 +41,13 @@
           <label for="brightness_3">Brightness: <span id="brightness_3_span">{{ brightness_3 }}</span>%</label>
           <p>Temperature 3: <span id="temp3"></span></p>
         </div>
+      </div>
+      <div class="threshold-container">
+        <label for="upperThresholdInput">Upper Threshold:</label>
+        <input type="number" id="upperThresholdInput" value="{{ upperThreshold }}">
+        <label for="lowerThresholdInput">Lower Threshold:</label>
+        <input type="number" id="lowerThresholdInput" value="{{ lowerThreshold }}">
+        <button id="updateThresholdsButton">Update Thresholds</button>
       </div>
     </div>
     <script>
@@ -130,9 +138,156 @@
     updateLight(document.getElementById('light_1'), lightValues['light_1']);
     updateLight(document.getElementById('light_2'), lightValues['light_2']);
     updateLight(document.getElementById('light_3'), lightValues['light_3']);
+    function getTemperaturesList() {
+  fetch('/temperatures_graph')
+    .then(response => response.json())
+    .then(data => {
+      var temperatureData = {
+        labels: [],
+        datasets: []
+      };
 
-      setInterval(getTemperatures, 1000);
+      // Add temperature data for each room
+      if (data.temp_list1 && data.temp_list1.length > 0) {
+        temperatureData.datasets.push({
+          label: 'Room 1',
+          fill:false,
+          data: data.temp_list1,
+          borderColor: 'rgb(255,217,34)',
+          borderWidth: 1
+        });
+      }
+
+      if (data.temp_list2 && data.temp_list2.length > 0) {
+        temperatureData.datasets.push({
+          label: 'Room 2',
+          fill:false,
+          data: data.temp_list2,
+          borderColor: 'rgb(228,73,239)',
+          borderWidth: 1
+        });
+      }
+
+      if (data.temp_list3 && data.temp_list3.length > 0) {
+        temperatureData.datasets.push({
+          label: 'Room 3',
+          fill:false,
+          data: data.temp_list3,
+          borderColor: 'rgba(0, 255, 0, 1)',
+          borderWidth: 1
+        });
+      }
+      temperatureData.labels = data.dates
+      var ctx = document.getElementById('temperatureChart').getContext('2d');
+      var lowerThreshold = data.lower_threshold || 10;
+      var upperThreshold = data.upper_threshold || 20;
+      temperatureData.datasets.push({
+          label: 'Upper Threshold',
+          fill:false,
+          data: Array(10).fill(upperThreshold),
+          borderColor: 'rgb(255,57,82)',
+          borderWidth: 1
+        });
+      temperatureData.datasets.push({
+          label: 'Lower Threshold',
+          fill:false,
+          data: Array(10).fill(lowerThreshold),
+          borderColor: 'rgb(57,90,255)',
+          borderWidth: 1
+        });
+
+      var chart = new Chart(ctx, {
+        type: 'line',
+        data: temperatureData,
+        options: {
+          scales: {
+            yAxes: [{
+              ticks: {
+                beginAtZero: true,
+                stepSize: 1
+              }
+            }]
+          },
+          annotation: {
+            annotations: [{
+              type: 'line',
+              mode: 'horizontal',
+              scaleID: 'y-axis-0',
+              value: lowerThreshold,
+              borderColor: 'rgba(75, 192, 192, 1)',
+              borderWidth: 2,
+              label: {
+                enabled: false
+              }
+            }, {
+              type: 'line',
+              mode: 'horizontal',
+              scaleID: 'y-axis-0',
+              value: upperThreshold,
+              borderColor: 'rgba(75, 192, 192, 1)',
+              borderWidth: 2,
+              label: {
+                enabled: false
+              }
+            }]
+          },
+          tooltips: {
+            callbacks: {
+              label: function (tooltipItem, data) {
+                var label = data.datasets[tooltipItem.datasetIndex].label || '';
+                var value = tooltipItem.yLabel || '';
+
+                if (label && value) {
+                  return label + ': ' + value + '°C';
+                }
+
+                return '';
+              }
+            }
+          },
+          elements: {
+            line: {
+              tension: 0
+            }
+          },
+          spanGaps: true
+        }
+      });
+
+      chart.options.animation = false;
+      chart.update();
+    });
+}
+      function sendThresholds() {
+        var lowerThreshold = parseFloat(document.getElementById('lowerThresholdInput').value);
+        var upperThreshold = parseFloat(document.getElementById('upperThresholdInput').value);
+
+        fetch('/js_thresholds', {
+          method: 'POST',
+          body: JSON.stringify({ lowerThreshold: lowerThreshold, upperThreshold: upperThreshold }),
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          // Handle the response data as needed
+          console.log(data.message);
+        })
+        .catch(error => {
+          // Handle any errors that occur during the request
+          console.error('Error:', error);
+        });
+      }
+      setInterval(getTemperaturesList, 4500);
+      setInterval(getTemperatures, 4500);
+      document.getElementById('updateThresholdsButton').addEventListener('click', sendThresholds);
+
+
     </script>
+    <div class="chart-container">
+  <canvas id="temperatureChart"></canvas>
+</div>
     <div class="center">
       <button class="btn-back" onclick="window.history.back()">Back to Previous Page</button>
     </div>
